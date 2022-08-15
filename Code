@@ -1,0 +1,40 @@
+1.MetaSeq sequencing data analysis
+# merge paired-end reads
+fq2fa --merge sample_R1.fq sample_R2.fq sample.fq
+# Bacterial ARGs pipeline
+srst2 --input_pe sample_R1.fq.gz _R2.fq.gz --forward _R1 --reverse _R2 --output sample_ARG/sample --gene_db ARGannot.r1.fasta --threads 8 --min_coverage 60
+# Combine srst2 results
+srst2 *__genes__ARGannot.r1__results.txt --output ARG_results
+
+2.AmpliSqe sequencing data analysis
+# merge paired-end reads
+zcat sample_R1.fq.gz > sample_R1.fq
+zcat sample_R2.fq.gz > sample_R2.fq
+flash sample_R1.fq sample_R2.fq -o sample 2>&1 | tee flash.log
+# Convert fastq to fasta file
+seqkit fq2fa sample1.fq -o sample1.fa 
+# BLAT against reference file
+pblat -threads=18 reference.fasta sample.fa sample.psl
+# Summarize blat data
+awk '$1 >100 {print $14}'  sample.psl | sort | uniq -c > sample.summary
+
+3.ARGs sequencing depth and coverage analysis
+# Mapping
+bwa mem -t 32 -M reference.fasta sample.fq -o sample.sam
+samtools view -bS sample.sam -o sample.bam
+# Depth analysis
+samtools sort sample.bam sample_sorted
+samtools index sample_sorted.bam
+samtools depth -b reference.bed sample_sorted.bam > sample.bed.depth
+# Mapping reads count 
+awk '{sum[$1]+=$2}END{for(c in sum){print c,sum[c]}}' sample.bed.depth > sample_read.summary
+awk '$3 >0 {print $1}' sample.bed.depth | sort | uniq -c > sample_1x_coverage.summary
+awk '$3 >9 {print $1}' sample.bed.depth | sort | uniq -c > sample_10x_coverage.summary
+rm sample.sam
+awk '$3 >99 {print $1}' sample.bed.depth | sort | uniq -c > sample_10x_coverage.summary
+rm sample.sam
+
+4.SNP analysis
+samtools mpileup -ugf reference.fasta sample_sorted.bam | bcftools view -vcg -D100 -> sample_snp.vcf 
+Harvest-Linux64-v1.1.2/parsnp -r reference.fasta -c -d sample.fasta -p 16 -o SNP 
+Harvest-Linux64-v1.1.2/harvesttools -i parsnp.ggr -V SNP/parsnp.vcf
